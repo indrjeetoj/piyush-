@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Two Player Battle Arena</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080d1b;color:white;font-family:Arial,sans-serif;text-align:center}
+.wrap{max-width:1000px;margin:auto;padding:12px}
+h1{color:#55dfff}
+.hud{display:flex;gap:12px;margin:12px 0}
+.player{flex:1;background:#131d35;padding:12px;border-radius:12px}
+.bar{height:18px;background:#30394e;border-radius:20px;overflow:hidden}
+.fill{height:100%;width:100%}
+.p1fill{background:#29c7ff}
+.p2fill{background:#ff5275}
+canvas{display:block;width:100%;background:#111c3b;border:2px solid #34486f;border-radius:12px;touch-action:none}
+button{padding:12px;margin:4px;border:0;border-radius:9px;background:#3459ef;color:white;font-weight:bold;cursor:pointer}
+.mobile{display:flex;justify-content:space-around;gap:10px;margin-top:12px}
+.pad{display:grid;grid-template-columns:repeat(3,42px);gap:4px}
+.pad button{margin:0;padding:10px 0}
+.power{display:block;width:100%;background:#3459ef}
+.super{display:block;width:100%;background:#8b43ee}
+.note{color:#c6d1e8;font-size:14px;line-height:1.7}
+@media(max-width:500px){.wrap{padding:5px}.mobile{gap:5px}.pad{grid-template-columns:repeat(3,34px)}button{padding:9px 5px}.player{padding:7px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>? BATTLE ARENA</h1>
+<p>Two Players � Special Powers � Fight to Win!</p>
+
+<div class="hud">
+ <div class="player">?? PLAYER 1
+  <p id="hp1txt">100 HP</p>
+  <div class="bar"><div id="hp1" class="fill p1fill"></div></div>
+ </div>
+ <div class="player">?? PLAYER 2
+  <p id="hp2txt">100 HP</p>
+  <div class="bar"><div id="hp2" class="fill p2fill"></div></div>
+ </div>
+</div>
+
+<canvas id="game" width="960" height="500"></canvas>
+
+<button onclick="start()">? Start Game</button>
+<button onclick="reset()">? Restart</button>
+
+<p class="note">
+Player 1: WASD Move � F Blast � G Super Power<br>
+Player 2: Arrow Keys Move � L Blast � K Super Power<br>
+Normal blast: 20 damage � Super blast: 35 damage
+</p>
+
+<div class="mobile">
+ <div>
+  <b style="color:#55dfff">PLAYER 1</b>
+  <div class="pad">
+   <span></span><button data-key="w">?</button><span></span>
+   <button data-key="a">?</button><button data-key="s">?</button><button data-key="d">?</button>
+  </div>
+  <button class="power" data-key="f">P1 BLAST ?</button>
+  <button class="super" data-key="g">P1 SUPER ?</button>
+ </div>
+ <div>
+  <b style="color:#ff718b">PLAYER 2</b>
+  <div class="pad">
+   <span></span><button data-key="arrowup">?</button><span></span>
+   <button data-key="arrowleft">?</button><button data-key="arrowdown">?</button><button data-key="arrowright">?</button>
+  </div>
+  <button class="power" data-key="l">P2 BLAST ?</button>
+  <button class="super" data-key="k">P2 SUPER ?</button>
+ </div>
+</div>
+</div>
+
+<script>
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+const W=960,H=500,FLOOR=420;
+let keys={},running=false,ended=false,last=0;
+let blasts=[],particles=[];
+const make=(x,color)=>({
+ x,y:FLOOR-76,w:38,h:76,color,hp:100,
+ vy:0,speed:4.4,grounded:true,face:1,
+ cooldown:0,specialCooldown:0,attack:0,flash:0
+});
+let p1,p2;
+
+function reset(){
+ p1=make(170,'#29c7ff');
+ p2=make(750,'#ff5275');
+ blasts=[];particles=[];keys={};
+ running=false;ended=false;
+ updateHud();draw();
+}
+
+function start(){if(ended)reset();running=true;ended=false}
+
+function updateHud(){
+ for(const [p,n] of [[p1,1],[p2,2]]){
+  document.getElementById('hp'+n).style.width=p.hp+'%';
+  document.getElementById('hp'+n+'txt').textContent=Math.ceil(p.hp)+' HP';
+ }
+}
+
+function finish(message){
+ running=false;ended=true;
+ setTimeout(()=>alert(message),30);
+}
+
+function attack(p,damage,color,radius,speed,cooldownKey){
+ if(p[cooldownKey]>0)return;
+ p[cooldownKey]=cooldownKey==='cooldown'?45:100;
+ p.attack=18;
+ blasts.push({
+  x:p.x+p.w/2+p.face*30,y:p.y+32,
+  vx:p.face*speed,owner:p,color,
+  r:radius,life:120,damage
+ });
+ for(let i=0;i<10;i++){
+  particles.push({
+   x:p.x+p.w/2,y:p.y+32,
+   vx:(Math.random()-.5)*6,
+   vy:(Math.random()-.5)*6,
+   life:20,color
+  });
+ }
+}
+
+function moveFighter(p,other,up,left,right,down,normal,superKey,step){
+ if(keys[left])p.x-=p.speed*step;
+ if(keys[right])p.x+=p.speed*step;
+ if(keys[up]&&p.grounded){p.vy=-12;p.grounded=false}
+ if(keys[down]&&!p.grounded)p.vy+=.6*step;
+ p.vy+=.58*step;p.y+=p.vy*step;
+ if(p.y+p.h>=FLOOR){p.y=FLOOR-p.h;p.vy=0;p.grounded=true}
+ p.x=Math.max(10,Math.min(W-p.w-10,p.x));
+ p.face=other.x>p.x?1:-1;
+ if(keys[normal])attack(p,20,p.color,14,9.5,'cooldown');
+ if(keys[superKey])attack(p,35,'#d78bff',25,7.5,'specialCooldown');
+ p.cooldown=Math.max(0,p.cooldown-step);
+ p.specialCooldown=Math.max(0,p.specialCooldown-step);
+ p.attack=Math.max(0,p.attack-step);
+ p.flash=Math.max(0,p.flash-step);
+}
+
+function update(dt){
+ if(!running)return;
+ const step=Math.min(dt/16.67,2);
+ moveFighter(p1,p2,'w','a','d','s','f','g',step);
+ moveFighter(p2,p1,'arrowup','arrowleft','arrowright','arrowdown','l','k',step);
+
+ for(const b of blasts){
+  b.x+=b.vx*step;b.life-=step;
+  const target=b.owner===p1?p2:p1;
+  if(b.life>0&&b.x>target.x-5&&b.x<target.x+target.w+5&&
+     b.y>target.y-5&&b.y<target.y+target.h){
+   target.hp=Math.max(0,target.hp-b.damage);
+   target.vy=-4;
+   target.flash=12;
+   b.life=0;updateHud();
+   for(let i=0;i<20;i++)particles.push({
+    x:target.x+target.w/2,y:target.y+30,
+    vx:(Math.random()-.5)*9,vy:(Math.random()-.5)*9,
+    life:25,color:b.color
+   });
+   if(target.hp<=0)finish((b.owner===p1?'PLAYER 1':'PLAYER 2')+' WINS!');
+  }
+ }
+ blasts=blasts.filter(b=>b.life>0&&b.x>-50&&b.x<W+50);
+ particles=particles.filter(q=>q.life>0);
+ particles.forEach(q=>{q.x+=q.vx*step;q.y+=q.vy*step;q.life-=step});
+}
+
+function fighter(p,n){
+ ctx.save();
+ ctx.translate(p.x+p.w/2,p.y);
+ ctx.scale(p.face,1);
+ ctx.translate(-p.w/2,0);
+ ctx.shadowColor=p.color;ctx.shadowBlur=14;
+ ctx.fillStyle=p.flash?'white':p.color;
+ ctx.fillRect(4,25,30,31);
+ ctx.fillRect(7,4,24,23);
+ ctx.shadowBlur=0;
+ ctx.fillStyle='#10172a';
+ ctx.fillRect(10,12,5,5);ctx.fillRect(22,12,5,5);
+ ctx.fillStyle=p.color;
+ ctx.fillRect(5,55,11,20);ctx.fillRect(23,55,11,20);
+ ctx.fillRect(28,31,13,9);
+ ctx.restore();
+ ctx.fillStyle='white';ctx.font='bold 15px Arial';
+ ctx.fillText('P'+n,p.x+p.w/2,p.y-10);
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ const sky=ctx.createLinearGradient(0,0,0,H);
+ sky.addColorStop(0,'#111c3b');sky.addColorStop(1,'#25365b');
+ ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ ctx.fillStyle='#1b2948';
+ for(let i=0;i<12;i++){
+  let bw=42+(i*19)%55,bh=70+(i*37)%150;
+  ctx.fillRect(i*86,FLOOR-bh,bw,bh);
+ }
+ ctx.fillStyle='#3c4e72';ctx.fillRect(0,FLOOR,W,H-FLOOR);
+ ctx.fillStyle='#596d92';ctx.fillRect(0,FLOOR,W,5);
+
+ for(const q of particles){
+  ctx.globalAlpha=Math.max(0,q.life/25);
+  ctx.fillStyle=q.color;ctx.fillRect(q.x,q.y,5,5);
+ }
+ ctx.globalAlpha=1;
+
+ for(const b of blasts){
+  ctx.save();ctx.shadowColor=b.color;ctx.shadowBlur=25;
+  ctx.fillStyle=b.color;ctx.beginPath();
+  ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();
+  ctx.shadowBlur=0;ctx.fillStyle='white';
+  ctx.beginPath();ctx.arc(b.x-b.vx*.2,b.y,b.r*.45,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+ }
+ fighter(p1,1);fighter(p2,2);
+ if(!running&&!ended){
+  ctx.fillStyle='white';ctx.font='bold 24px Arial';
+  ctx.textAlign='center';ctx.fillText('READY TO FIGHT?',W/2,70);
+ }
+}
+
+function loop(t){
+ const dt=t-last||16;last=t;
+ update(dt);draw();requestAnimationFrame(loop);
+}
+
+const keyMap={
+ KeyW:'w',KeyA:'a',KeyS:'s',KeyD:'d',
+ KeyF:'f',KeyG:'g',KeyL:'l',KeyK:'k',
+ ArrowUp:'arrowup',ArrowDown:'arrowdown',
+ ArrowLeft:'arrowleft',ArrowRight:'arrowright'
+};
+
+window.addEventListener('keydown',e=>{
+ const k=keyMap[e.code]||e.key.toLowerCase();
+ if(keyMap[e.code])e.preventDefault();
+ keys[k]=true;
+ if(!running&&!ended&&
+ ['w','a','s','d','f','g','l','k',
+ 'arrowup','arrowdown','arrowleft','arrowright'].includes(k))start();
+});
+window.addEventListener('keyup',e=>{
+ keys[keyMap[e.code]||e.key.toLowerCase()]=false;
+});
+window.addEventListener('blur',()=>keys={});
+
+document.querySelectorAll('[data-key]').forEach(btn=>{
+ const k=btn.dataset.key;
+ btn.addEventListener('pointerdown',e=>{
+  e.preventDefault();keys[k]=true;
+  if(!running&&!ended)start();
+  btn.setPointerCapture?.(e.pointerId);
+ });
+ ['pointerup','pointercancel','lostpointercapture'].forEach(ev=>
+  btn.addEventListener(ev,()=>keys[k]=false)
+ );
+});
+
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
